@@ -7,6 +7,14 @@ Just a really simple, insecure and incomplete implementation of a blockchain for
 
 >This project is just being made for fun. If you want to make your own cryptocurrency you should probably take a look at the [Bitcoin Repository](https://github.com/bitcoin/bitcoin).
 
+## BLS
+- BLS Signature aggregation 
+    - [Library](https://github.com/asonnino/bls/tree/master)
+- BLS Study material
+    - [Ethereum](https://eth2book.info/capella/part2/building_blocks/signatures/)
+    - [Elliptic curve pairing by Vitallik](https://medium.com/@VitalikButerin/exploring-elliptic-curve-pairings-c73c1864e627)
+    - [Crypto Stanford](https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html)
+    - [IEFT Draft](https://www.ietf.org/archive/id/draft-irtf-cfrg-bls-signature-05.html#name-implementation-status)
 
 ## What is a blockchain?
 
