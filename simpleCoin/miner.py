@@ -11,6 +11,9 @@ import ecdsa
 import random
 
 from miner_config import *
+import bls 
+from petlib.bn import Bn
+from bplib.bp import BpGroup, G2Elem, G1Elem
 
 import logging
 log = logging.getLogger('werkzeug')
@@ -18,6 +21,7 @@ log.setLevel(logging.ERROR)
 
 node = Flask(__name__)
 
+bls_params = bls.setup()
 
 class Block:
     def __init__(self, index, timestamp, data, previous_hash):
@@ -129,7 +133,7 @@ def proof_of_work(a=None):
 
 
 def mine(a):
-    global BLOCKCHAIN
+    global BLOCKCHAIN, bls_params
 
     print("Mine init.")
     # for block in BLOCKCHAIN:
@@ -165,6 +169,9 @@ def mine(a):
             print('=================================> running @', config['MINER_NODE_URL'] + '/txion')
             pending_transactions = requests.get(url = config['MINER_NODE_URL'] + '/txion', params = {'update':config['MINER_ADDRESS']}).content
             pending_transactions = json.loads(pending_transactions)
+
+            # aggregate the signatures
+            
             # Then we add the mining reward
             pending_transactions.append({
                 "from": "network",
@@ -307,7 +314,7 @@ def transaction():
         # On each new POST request, we extract the transaction data
         new_txion = request.get_json()
         # Then we add the transaction to our list
-        if validate_signature(new_txion['from'], new_txion['signature'], new_txion['message']):
+        if validate_signature(new_txion['from'], new_txion['signature'], new_txion['amount']):
             NODE_PENDING_TRANSACTIONS.append(new_txion)
             # Because the transaction was successfully
             # submitted, we log it to our console
@@ -329,18 +336,21 @@ def transaction():
         return pending
 
 
-def validate_signature(public_key, signature, message):
+def validate_signature(public_key, signature, amount):
     """Verifies if the signature is correct. This is used to prove
     it's you (and not someone else) trying to do a transaction with your
     address. Called when a user tries to submit a new transaction.
     """
-    public_key = (base64.b64decode(public_key)).hex()
-    signature = base64.b64decode(signature)
-    vk = ecdsa.VerifyingKey.from_string(bytes.fromhex(public_key), curve=ecdsa.SECP256k1)
-    # Try changing into an if/else statement as except is too broad.
+    global bls_params
+    (G,_,_,_,_) = bls_params
+
+    vk = G2Elem.from_bytes(base64.b64decode(public_key), G)
+    sig = G1Elem.from_bytes(base64.b64decode(signature), G)
     try:
-        return vk.verify(signature, message.encode())
-    except:
+        return bls.verify(bls_params, vk, sig, [amount])
+    except Exception as e:
+        print("Problem verifying signature.")
+        print(e)
         return False
 
 
