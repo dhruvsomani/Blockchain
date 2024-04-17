@@ -11,6 +11,9 @@ import ecdsa
 import random
 
 from miner_config import *
+import bls 
+from petlib.bn import Bn
+from bplib.bp import BpGroup, G2Elem, G1Elem
 
 import logging
 log = logging.getLogger('werkzeug')
@@ -18,9 +21,10 @@ log.setLevel(logging.ERROR)
 
 node = Flask(__name__)
 
+bls_params = bls.setup()
 
 class Block:
-    def __init__(self, index, timestamp, data, previous_hash):
+    def __init__(self, index, timestamp, data, previous_hash, hash=""):
         """Returns a new Block object. Each block is "chained" to its previous
         by calling its unique hash.
 
@@ -42,7 +46,10 @@ class Block:
         self.timestamp = timestamp
         self.data = data
         self.previous_hash = previous_hash
-        self.hash = self.hash_block()
+        if hash == "":
+            self.hash = self.hash_block()
+        else:
+            self.hash = hash
 
     def __eq__(self, other):
         return self.hash == other.hash
@@ -79,7 +86,7 @@ def create_block(d):
     for key, val in d.items():
         print(key, val)
     print()
-    return Block(d['index'], d['timestamp'], d['data'], d.get('previous_hash', ''))
+    return Block(d['index'], d['timestamp'], d['data'], d.get('previous_hash', '0'), d.get('hash', ''))
 
 
 # Node's blockchain copy
@@ -129,7 +136,8 @@ def proof_of_work(a=None):
 
 
 def mine(a):
-    global BLOCKCHAIN
+    global BLOCKCHAIN, bls_params
+    (G,_,_,_,_) = bls_params
 
     print("Mine init.")
     # for block in BLOCKCHAIN:
@@ -165,14 +173,31 @@ def mine(a):
             print('=================================> running @', config['MINER_NODE_URL'] + '/txion')
             pending_transactions = requests.get(url = config['MINER_NODE_URL'] + '/txion', params = {'update':config['MINER_ADDRESS']}).content
             pending_transactions = json.loads(pending_transactions)
+
+
             # Then we add the mining reward
+            sk = Bn.from_hex(base64.b16encode(base64.b64decode(config['MINER_SECRET'])).decode())
+            sig = bls.sign(bls_params,sk,["1"])
+            miner_sign = base64.b64encode(sig.export()).decode()
             pending_transactions.append({
                 "from": "network",
                 "to": config['MINER_ADDRESS'],
-                "amount": 1})
+                "amount": 1,
+                "signature": miner_sign})
+            
+            # aggregate the signatures
+            sigs = []
+            for tx in pending_transactions:
+                signature = tx.pop('signature')
+                print("adding sig: ", signature)
+                sig = G1Elem.from_bytes(base64.b64decode(signature), G)
+                sigs.append(sig)
+            aggr_sig = bls.aggregate_sigma(bls_params, sigs)
+
             # Now we can gather the data needed to create the new block
             new_block_data = {
                 "proof-of-work": proof,
+                "aggregate_signature": base64.b64encode(aggr_sig.export()).decode(),
                 "transactions": list(pending_transactions)
             }
             new_block_index = int(last_block.index) + 1
@@ -181,6 +206,9 @@ def mine(a):
 
             # Now create the new block
             mined_block = Block(new_block_index, new_block_timestamp, new_block_data, last_block_hash)
+            
+            print("Verifying the mined block:", validate_block(mined_block))
+
             BLOCKCHAIN.append(mined_block)
             # Let the client know this node mined a block
             print(json.dumps({
@@ -259,12 +287,45 @@ def consensus(a=None):
         return True
 
 
-def validate_blockchain(block):
+def validate_blockchain(blockchain):
     """Validate the submitted chain. If hashes are not correct, return false
     block(str): json
     """
+    
+    for block in blockchain:
+        if validate_block(block) == False:
+            return False
     return True
 
+def validate_block(block: Block):
+    global bls_params
+    (G,_,_,_,_) = bls_params
+
+    contained_hash = block.hash
+    block.hash_block()
+    if block.hash != contained_hash:
+        return False
+        
+    # get the aggregate signature, 
+    sigs = block.data['aggregate_signature']
+    sigma = G1Elem.from_bytes(base64.b64decode(sigs), G)
+
+    # and the aggregate vk
+    vks = []
+    m = []
+    for tx in block.data['transactions']:
+        m.append(str(tx['amount']))
+        vk = ""
+        if tx['from'] == 'network':
+            vk = tx['to']
+        else:
+            vk = tx['from']
+        vk = G2Elem.from_bytes(base64.b64decode(vk), G)
+        vks.append(vk)
+    aggr_vk = bls.aggregate_vk(bls_params, vks)
+    
+    return bls.verify(bls_params,aggr_vk,sigma, m)
+    
 
 @node.route('/blocks', methods=['GET'])
 def get_blocks():
@@ -307,7 +368,7 @@ def transaction():
         # On each new POST request, we extract the transaction data
         new_txion = request.get_json()
         # Then we add the transaction to our list
-        if validate_signature(new_txion['from'], new_txion['signature'], new_txion['message']):
+        if validate_signature(new_txion['from'], new_txion['signature'], new_txion['amount']):
             NODE_PENDING_TRANSACTIONS.append(new_txion)
             # Because the transaction was successfully
             # submitted, we log it to our console
@@ -329,20 +390,52 @@ def transaction():
         return pending
 
 
-def validate_signature(public_key, signature, message):
+def validate_signature(public_key, signature, amount):
     """Verifies if the signature is correct. This is used to prove
     it's you (and not someone else) trying to do a transaction with your
     address. Called when a user tries to submit a new transaction.
     """
-    public_key = (base64.b64decode(public_key)).hex()
-    signature = base64.b64decode(signature)
-    vk = ecdsa.VerifyingKey.from_string(bytes.fromhex(public_key), curve=ecdsa.SECP256k1)
-    # Try changing into an if/else statement as except is too broad.
+    global bls_params
+    (G,_,_,_,_) = bls_params
+
+    vk = G2Elem.from_bytes(base64.b64decode(public_key), G)
+    sig = G1Elem.from_bytes(base64.b64decode(signature), G)
     try:
-        return vk.verify(signature, message.encode())
-    except:
+        return bls.verify(bls_params, vk, sig, [amount])
+    except Exception as e:
+        print("Problem verifying signature.")
+        print(e)
         return False
 
+def generate_BLS_keys():
+
+    filename_sk = config['MINER_NAME'] + "_private_key.pem"
+    filename_vk = config['MINER_NAME'] + "_public_key.pem"
+    # first try to read from files
+    private_key = ""
+    public_key = ""
+
+    try:
+        with open(filename_sk, 'r') as file:
+            lines = file.readlines()
+            private_key = lines[1].strip()
+        with open(filename_vk, 'r') as file:
+            lines = file.readlines()
+            public_key = lines[1].strip()
+    except FileNotFoundError:
+        global bls_params
+        ([sk],[vk]) = bls.ttp_keygen(bls_params,1,1)
+        # sk is Bn and vk is G1Elem
+        private_key = base64.b64encode( bytes.fromhex(sk.hex())).decode()
+        public_key = base64.b64encode(vk.export()).decode()
+        
+        with open(filename_sk, "w") as f:
+            f.write(F"Private Key:\n{private_key}")
+        with open(filename_vk, "w") as f:
+            f.write(F"Public key:\n{public_key}")
+
+    config['MINER_ADDRESS'] = public_key
+    config['MINER_SECRET'] = private_key
 
 def welcome_msg():
     print("""       =========================================\n
@@ -355,8 +448,9 @@ def welcome_msg():
 
 if __name__ == '__main__':
     welcome_msg()
-
+    
     config = configs[sys.argv[1]]
+    generate_BLS_keys()
 
     # Start mining
     pipe_output, pipe_input = Pipe()
