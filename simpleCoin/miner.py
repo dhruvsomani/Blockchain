@@ -60,12 +60,12 @@ class Block:
         string_to_hash = str(self.index) + str(self.timestamp) + str(self.previous_hash)
 
         for key, val in sorted(self.data.items()):
-            string_to_hash += str(key) + str(val) + '_'
+            string_to_hash += str(key) + '_' + str(val) + '__'
 
-        print("=======================+")
-        print(self.index)
-        print(string_to_hash)
-        print()
+        # print("===================HASHING=============")
+        # print(self.index)
+        # print(string_to_hash)
+        # print()
 
         sha.update(string_to_hash.encode('utf-8'))
         return sha.hexdigest()
@@ -82,10 +82,10 @@ def create_genesis_block():
 
 
 def create_block(d):
-    print("in create_block()")
-    for key, val in d.items():
-        print(key, val)
-    print()
+    # print("in create_block()")
+    # for key, val in d.items():
+    #     print(key, val)
+    # print()
     return Block(d['index'], d['timestamp'], d['data'], d.get('previous_hash', '0'), d.get('hash', ''))
 
 
@@ -137,12 +137,7 @@ def proof_of_work(a=None):
 
 def mine(a):
     global BLOCKCHAIN, bls_params
-    (G,_,_,_,_) = bls_params
 
-    print("Mine init.")
-    # for block in BLOCKCHAIN:
-        # if type(block) != Block:
-        #     block['data'] = json.loads(block['data'])
 
     while True:
         """Mining is the only way that new coins can be created.
@@ -170,44 +165,23 @@ def mine(a):
             # Once we find a valid proof of work, we know we can mine a block so
             # ...we reward the miner by adding a transaction
             # First we load all pending transactions sent to the node server
-            print('=================================> running @', config['MINER_NODE_URL'] + '/txion')
+            print('=======================> running @', config['MINER_NODE_URL'] + '/txion')
             pending_transactions = requests.get(url = config['MINER_NODE_URL'] + '/txion', params = {'update':config['MINER_ADDRESS']}).content
             pending_transactions = json.loads(pending_transactions)
 
+            new_block_timestamp = round(time.time())
 
-            # Then we add the mining reward
-            sk = Bn.from_hex(base64.b16encode(base64.b64decode(config['MINER_SECRET'])).decode())
-            sig = bls.sign(bls_params,sk,["1"])
-            miner_sign = base64.b64encode(sig.export()).decode()
-            pending_transactions.append({
-                "from": "network",
-                "to": config['MINER_ADDRESS'],
-                "amount": 1,
-                "signature": miner_sign})
-            
             # aggregate the signatures
-            sigs = []
-            for tx in pending_transactions:
-                signature = tx.pop('signature')
-                print("adding sig: ", signature)
-                sig = G1Elem.from_bytes(base64.b64decode(signature), G)
-                sigs.append(sig)
-            aggr_sig = bls.aggregate_sigma(bls_params, sigs)
-
-            # Now we can gather the data needed to create the new block
-            new_block_data = {
-                "proof-of-work": proof,
-                "aggregate_signature": base64.b64encode(aggr_sig.export()).decode(),
-                "transactions": list(pending_transactions)
-            }
+            new_block_data = generate_aggregated_block(bls_params, pending_transactions, new_block_timestamp)
+            new_block_data["proof-of-work"] = proof
+            
             new_block_index = int(last_block.index) + 1
-            new_block_timestamp = time.time()
+            
             last_block_hash = last_block.hash
 
             # Now create the new block
             mined_block = Block(new_block_index, new_block_timestamp, new_block_data, last_block_hash)
-            
-            print("Verifying the mined block:", validate_block(mined_block))
+            assert validate_block(mined_block)
 
             BLOCKCHAIN.append(mined_block)
             # Let the client know this node mined a block
@@ -216,16 +190,76 @@ def mine(a):
               "timestamp": str(new_block_timestamp),
               "data": new_block_data,
               "previous_hash": last_block_hash
-            }, sort_keys=True) + "\n")
+            }, sort_keys=True, indent=4) + "\n")
 
         a.send(BLOCKCHAIN)
         requests.get(url = config['MINER_NODE_URL'] + '/blocks', params = {'update': config['MINER_ADDRESS']})
 
+def generate_aggregated_block(bls_params, pending_transactions, new_block_timestamp):
+    (G,_,_,_,_) = bls_params
 
+    # Miner adds their own mining reward
+    sk = Bn.from_hex(base64.b16encode(base64.b64decode(config['MINER_SECRET'])).decode())
+    
+    sig = bls.sign(bls_params,sk,[config['MINER_NAME'] + str(new_block_timestamp)])
+    miner_sign = base64.b64encode(sig.export()).decode()
+    pending_transactions.append({
+        "from": "network",
+        "to": config['MINER_ADDRESS'],
+        "amount": 1,
+        "signature": miner_sign,
+        "timestamp": new_block_timestamp})
+    
+    sigs = []
+    for tx in pending_transactions:
+        signature = tx.pop('signature')
+        sig = G1Elem.from_bytes(base64.b64decode(signature), G)
+        sigs.append(sig)
+    aggr_sig = bls.aggregate_sigma(bls_params, sigs, threshold=False)
+
+    # Now we can gather the data needed to create the new block
+    return {
+        "mined_by": config['MINER_NAME'],
+        "aggregate_signature": base64.b64encode(aggr_sig.export()).decode(),
+        "transactions": list(pending_transactions)
+    }
+
+def validate_block(block: Block):
+    global bls_params
+    (G,_,_,_,_) = bls_params
+
+    contained_hash = block.hash
+    block.hash_block()
+    if block.hash != contained_hash:
+        print("Validation error: hash doesn't match")
+        return False
+        
+    # get the aggregate signature, 
+    sigs = block.data['aggregate_signature']
+    sigma = G1Elem.from_bytes(base64.b64decode(sigs), G)
+
+    # and the aggregate vk
+    vks = []
+    m = []
+    for tx in block.data['transactions']:
+        vk = ""
+        if tx['from'] == 'network':
+            vk = tx['to']
+            m.append(str(block.data['mined_by']) + str(tx['timestamp']))
+        else:
+            vk = tx['from']
+            m.append(str(tx['amount']) + str(tx['timestamp']))
+        vk = G2Elem.from_bytes(base64.b64decode(vk), G)
+        vks.append(vk)
+    try:
+        return bls.aggregate_verify(bls_params, sigma, vks, m)
+    except Exception as e:
+        print("Problem verifying signaturess.")
+        print(e)
+        return False
+    
 def serialize_data(blockchain_str):
-    # print("packed:", blockchain_str)
     blockchain_str = json.loads(blockchain_str)
-    # print("loaded:", blockchain_str)
     unpacked_blockchain = []
     for block in blockchain_str:
         block['data'] = ast.literal_eval(block['data'])
@@ -248,7 +282,7 @@ def find_new_chains():
             unpacked_blockchain = serialize_data(rcv_blockchain)
             
             # Verify other node block is correct
-            validated = validate_blockchain(unpacked_blockchain)
+            validated = all(validate_block(block) for block in unpacked_blockchain)
             if validated:
                 # Add it to our list
                 other_chains.append(unpacked_blockchain)
@@ -287,44 +321,6 @@ def consensus(a=None):
         return True
 
 
-def validate_blockchain(blockchain):
-    """Validate the submitted chain. If hashes are not correct, return false
-    block(str): json
-    """
-    
-    for block in blockchain:
-        if validate_block(block) == False:
-            return False
-    return True
-
-def validate_block(block: Block):
-    global bls_params
-    (G,_,_,_,_) = bls_params
-
-    contained_hash = block.hash
-    block.hash_block()
-    if block.hash != contained_hash:
-        return False
-        
-    # get the aggregate signature, 
-    sigs = block.data['aggregate_signature']
-    sigma = G1Elem.from_bytes(base64.b64decode(sigs), G)
-
-    # and the aggregate vk
-    vks = []
-    m = []
-    for tx in block.data['transactions']:
-        m.append(str(tx['amount']))
-        vk = ""
-        if tx['from'] == 'network':
-            vk = tx['to']
-        else:
-            vk = tx['from']
-        vk = G2Elem.from_bytes(base64.b64decode(vk), G)
-        vks.append(vk)
-    aggr_vk = bls.aggregate_vk(bls_params, vks)
-    
-    return bls.verify(bls_params,aggr_vk,sigma, m)
     
 
 @node.route('/blocks', methods=['GET'])
@@ -368,7 +364,7 @@ def transaction():
         # On each new POST request, we extract the transaction data
         new_txion = request.get_json()
         # Then we add the transaction to our list
-        if validate_signature(new_txion['from'], new_txion['signature'], new_txion['amount']):
+        if validate_signature(new_txion['from'], new_txion['signature'], new_txion['amount'], new_txion['timestamp']):
             NODE_PENDING_TRANSACTIONS.append(new_txion)
             # Because the transaction was successfully
             # submitted, we log it to our console
@@ -390,7 +386,7 @@ def transaction():
         return pending
 
 
-def validate_signature(public_key, signature, amount):
+def validate_signature(public_key, signature, amount, timestamp):
     """Verifies if the signature is correct. This is used to prove
     it's you (and not someone else) trying to do a transaction with your
     address. Called when a user tries to submit a new transaction.
@@ -401,7 +397,7 @@ def validate_signature(public_key, signature, amount):
     vk = G2Elem.from_bytes(base64.b64decode(public_key), G)
     sig = G1Elem.from_bytes(base64.b64decode(signature), G)
     try:
-        return bls.verify(bls_params, vk, sig, [amount])
+        return bls.verify(bls_params, vk, sig, [str(amount) + str(timestamp)])
     except Exception as e:
         print("Problem verifying signature.")
         print(e)

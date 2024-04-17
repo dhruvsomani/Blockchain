@@ -22,10 +22,11 @@ import requests
 import base64
 import json
 import bls
+import time
 
 from petlib.bn import Bn
 bls_params = bls.setup()
-
+from bplib.bp import BpGroup, G2Elem, G1Elem
 from miner_config import *
 
 def wallet():
@@ -53,8 +54,7 @@ def wallet():
             print("Amount needs to be an integer")
             quit()
         print("=========================================\n\n")
-        print("Is everything correct?\n")
-        print(F"From: {addr_from}\nPrivate Key: {private_key}\nTo: {addr_to}\nAmount: {amount}\n")
+        print("Proceed?\n")
         response = input("y/n\n")
         if response.lower() == "n":
             return quit()  # return to main menu
@@ -67,12 +67,14 @@ def wallet():
         quit()
 
 def send_transaction(addr_from, private_key, addr_to, amount):
-    signature = sign_BLS_msg(private_key, amount)
+    timestamp = round(time.time())
+    signature = sign_BLS_msg(private_key, amount, timestamp)
     url = config['MINER_NODE_URL'] + '/txion'
     payload = {"from": addr_from,
                 "to": addr_to,
                 "amount": amount,
-                "signature": signature}
+                "signature": signature,
+                "timestamp":timestamp}
     headers = {"Content-Type": "application/json"}
 
     res = requests.post(url, json=payload, headers=headers)
@@ -103,9 +105,9 @@ def generate_BLS_keys():
         f.write(F"Public key:\n{public_key}")
     print(F"Keys saved to file.")
 
-def sign_BLS_msg(private_key, amount):
+def sign_BLS_msg(private_key, amount, timestamp):
     global bls_params
-    message = [str(amount)]
+    message = [str(amount) + str(timestamp)]
     sk = Bn.from_hex(base64.b16encode(base64.b64decode(private_key)).decode())
     sig = bls.sign(bls_params,sk,message)
     sig = base64.b64encode(sig.export()).decode()
