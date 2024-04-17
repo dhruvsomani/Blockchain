@@ -5,7 +5,7 @@ more details.
 configs = {
 	"config1": {
 		# Write your generated adress here. All coins mined will go to this address
-		"MINER_ADDRESS" : "q3nf394hjg-random-miner-address-34nf3i4nfldhruv",
+		"MINER_NAME" : "Druv",
 
 		# Write your node url or ip. If you are running it localhost use default
 		"MINER_NODE_URL" : "http://localhost:5000",
@@ -18,7 +18,7 @@ configs = {
 
 	"config2": {
 		# Write your generated adress here. All coins mined will go to this address
-		"MINER_ADDRESS" : "q3nf394hjg-random-miner-address-34nf3i4nflviraj",
+		"MINER_NAME" : "Viraj",
 
 		# Write your node url or ip. If you are running it localhost use default
 		"MINER_NODE_URL" : "http://localhost:5001",
@@ -30,7 +30,7 @@ configs = {
 	},
     "isolated": {
 		# Write your generated adress here. All coins mined will go to this address
-		"MINER_ADDRESS" : "this_is_AV.",
+		"MINER_NAME" : "AV",
 
 		# Write your node url or ip. If you are running it localhost use default
 		"MINER_NODE_URL" : "http://localhost:6000",

@@ -15,11 +15,11 @@ def lagrange_basis(indexes, o, x=0):
     """ generates all lagrange basis polynomials """
     l = []
     for i in indexes:
-        numerator, denominator = 1, 1
+        numerator, denominator = Bn.from_num(1), Bn.from_num(1)
         for j in indexes:
             if j != i:
-	            numerator = (numerator * (x - j)) % o
-	            denominator = (denominator * (i - j)) % o
+                numerator = (numerator * (x - j)) % o
+                denominator = (denominator * (i - j)) % o
         l.append((numerator * denominator.mod_inverse(o)) % o)
     return l
 
