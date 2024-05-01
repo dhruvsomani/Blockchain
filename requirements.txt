@@ -1,5 +1,4 @@
 Flask
-ecdsa
 requests
 petlib
 bplib

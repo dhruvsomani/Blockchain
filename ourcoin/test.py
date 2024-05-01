@@ -6,13 +6,13 @@ def test_multi_authorities():
 	params = setup()
 
 	# generate key
-	(sk, vk) = ttp_keygen(params, n, n)
+	(sk, vk) = keygen(params, n)
 
-	# sign
+	# sign all the messages
 	sigs = [sign(params, ski, [mi]) for ski,mi in zip(sk,m)]
 
 	# aggregate credentials
-	sigma = aggregate_sigma(params, sigs, threshold=False)
+	sigma = aggregate_sigma(params, sigs)
 
 	assert aggregate_verify(params, sigma, vk, m)
 	

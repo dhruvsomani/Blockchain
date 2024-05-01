@@ -93,7 +93,7 @@ def check_transactions():
 
 def generate_BLS_keys():
     global bls_params
-    ([sk],[vk]) = bls.ttp_keygen(bls_params,1,1)
+    ([sk],[vk]) = bls.keygen(bls_params,1)
     # sk is Bn and vk is G1Elem
     private_key = base64.b64encode( bytes.fromhex(sk.hex())).decode()
     public_key = base64.b64encode(vk.export()).decode()

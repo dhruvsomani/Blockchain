@@ -144,21 +144,14 @@ def mine(a):
         In order to prevent too many coins to be created, the process
         is slowed down by a proof of work algorithm.
         """
-        # Get the last proof of work
-        # print(BLOCKCHAIN)
         last_block = BLOCKCHAIN[-1]
 
         # Find the proof of work for the current block being mined
-        # Note: The program will hang here until a new proof of work is found
         proof = proof_of_work(a)
         # If we didn't guess the proof, start mining again
         if not proof:
             # Update blockchain and save it to file
             print('recvd blockchain of length', len(BLOCKCHAIN))
-            # BLOCKCHAIN = proof[1]
-            # a.send(BLOCKCHAIN)
-            # requests.get(url = config['MINER_NODE_URL'] + '/blocks', params = {'update':config['MINER_ADDRESS']})
-            # continue
 
         else:
             print('mined block')
@@ -208,14 +201,15 @@ def generate_aggregated_block(bls_params, pending_transactions, new_block_timest
         "to": config['MINER_ADDRESS'],
         "amount": 1,
         "signature": miner_sign,
-        "timestamp": new_block_timestamp})
+        "timestamp": new_block_timestamp
+    })
     
     sigs = []
     for tx in pending_transactions:
         signature = tx.pop('signature')
         sig = G1Elem.from_bytes(base64.b64decode(signature), G)
         sigs.append(sig)
-    aggr_sig = bls.aggregate_sigma(bls_params, sigs, threshold=False)
+    aggr_sig = bls.aggregate_sigma(bls_params, sigs)
 
     # Now we can gather the data needed to create the new block
     return {
@@ -420,7 +414,7 @@ def generate_BLS_keys():
             public_key = lines[1].strip()
     except FileNotFoundError:
         global bls_params
-        ([sk],[vk]) = bls.ttp_keygen(bls_params,1,1)
+        ([sk],[vk]) = bls.keygen(bls_params,1)
         # sk is Bn and vk is G1Elem
         private_key = base64.b64encode( bytes.fromhex(sk.hex())).decode()
         public_key = base64.b64encode(vk.export()).decode()
