@@ -1,11 +1,11 @@
 # OurCoin
 
-Forked from [SimpleCoin](https://github.com/cosme12/SimpleCoin). Integrated BLS Signature schemes to have aggregated signatures for entire blocks.
+Forked from [SimpleCoin](https://github.com/cosme12/SimpleCoin). Integrated BLS Signature schemes to have aggregated signatures for entire blocks. For reference we used [this article](https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html).
 
 ## BLS Resources
+- [Crypto Stanford](https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html)
 - [Ethereum](https://eth2book.info/capella/part2/building_blocks/signatures/)
 - [Elliptic curve pairing by Vitallik](https://medium.com/@VitalikButerin/exploring-elliptic-curve-pairings-c73c1864e627)
-- [Crypto Stanford](https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html)
 - [IEFT Draft](https://www.ietf.org/archive/id/draft-irtf-cfrg-bls-signature-05.html#name-implementation-status)
 
 
